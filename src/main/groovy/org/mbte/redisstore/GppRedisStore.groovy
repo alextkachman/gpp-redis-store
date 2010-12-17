@@ -25,10 +25,12 @@ import org.apache.catalina.session.StandardSession
 import org.apache.catalina.session.StoreBase
 
 import redis.clients.jedis.Jedis
-import java.util.logging.Level
+import org.apache.juli.logging.Log;
+import org.apache.juli.logging.LogFactory;
+import redis.clients.jedis.JedisPool
 
 @Typed class GppRedisStore extends StoreBase implements Store {
-    private static Logger log = Logger.getLogger("RedisStore");
+    private static Log log = LogFactory.getLog(GppRedisStore);
 
     /**
      * Redis host
@@ -50,102 +52,154 @@ import java.util.logging.Level
      */
     int database = 0
 
-    private Jedis getJedis() throws IOException {
+    private volatile JedisPool _pool
 
-        def jedis = new Jedis(host, port);
-        try {
-            jedis.connect()
-            jedis.select(database)
-            return jedis
-        } catch (UnknownHostException e) {
-            log.severe("Unknown redis host")
-            throw e
-        } catch (IOException e) {
-            log.severe("Unknown redis port")
-            throw e
-        }
+    private JedisPool getPool() {
+        JedisPool res = _pool
+        if(!res)
+            synchronized(this) {
+                res = _pool
+                if(!res)
+                    _pool = res = [host, port]
+            }
+        return res
     }
 
-    private void closeJedis(Jedis jedis) throws IOException {
-        jedis.quit();
-        try {
-            jedis.disconnect()
-        } catch (IOException e) {
-            log.severe(e.getMessage())
-            throw e
+    Jedis borrowJedis() throws IOException {
+        for(;;) {
+            Jedis res = pool.resource
+            if(res.connected)
+                return res
+
+            pool.returnBrokenResource(res)
         }
     }
 
     public void clear() throws IOException {
-        def jedis = getJedis()
-        jedis.flushDB()
-        closeJedis(jedis)
+        for(;;) {
+            Jedis jedis = pool.resource
+            try {
+                jedis.flushDB()
+            }
+            catch(e) {
+                pool.returnBrokenResource(jedis)
+                continue
+            }
+            pool.returnResource(jedis)
+            return
+        }
     }
 
     public int getSize() throws IOException {
-        def jedis = getJedis()
-        def size = jedis.dbSize()
-        closeJedis(jedis)
-        size
+        int size
+        for(;;) {
+            Jedis jedis = pool.resource
+            try {
+                size = jedis.dbSize()
+            }
+            catch(e) {
+                pool.returnBrokenResource(jedis)
+                continue
+            }
+            pool.returnResource(jedis)
+            return size
+        }
     }
 
     public String[] keys() throws IOException {
-        def jedis = getJedis ()
-        def keysList = jedis.keys ("*")
-        closeJedis (jedis);
-        keysList.toArray (new String [keysList.size ()])
+        String[] res
+        for(;;) {
+            Jedis jedis = pool.resource
+            try {
+                def keysList = jedis.keys ("*")
+                res = keysList.toArray (new String [keysList.size ()])
+            }
+            catch(e) {
+                pool.returnBrokenResource(jedis)
+                continue
+            }
+            pool.returnResource(jedis)
+            return res
+        }
     }
 
     public Session load(String id) throws ClassNotFoundException, IOException {
         StandardSession session
 
-        def container = manager.container
-
-        def jedis = getJedis()
-        def hash = jedis.get(id)
-        closeJedis(jedis)
-
-        if (hash) {
+        String res
+        for(;;) {
+            Jedis jedis = pool.resource
             try {
-                def bis = new BufferedInputStream(new ByteArrayInputStream(deserializeHexBytes(hash)))
+                res = jedis.get(id)
+            }
+            catch(e) {
+                pool.returnBrokenResource(jedis)
+                continue
+            }
+            pool.returnResource(jedis)
+            break
+        }
+
+        def container = manager.container
+        if (res) {
+            try {
+                def bis = new BufferedInputStream(new ByteArrayInputStream(deserializeHexBytes(res)))
                 def classLoader = container?.loader?.classLoader
                 def ois = classLoader ? new CustomObjectInputStream(bis, classLoader) : new ObjectInputStream(bis)
                 session = manager.createEmptySession()
                 session.readObjectData(ois)
-                session.setManager(manager)
+                session.manager = manager
                 log.info("Loaded session id $id")
             } catch (Exception ex) {
-                log.severe(ex.getMessage());
+                log.error(ex.getMessage());
             }
         } else {
-            log.warning("No persisted data object found");
+            log.warn("No persisted data object found");
         }
-        return session
+
+        session
     }
 
     public void remove(String id) throws IOException {
-        def jedis = getJedis()
-        jedis.del(id)
-        closeJedis(jedis)
-        if(log.isLoggable(Level.INFO))
-            log.info("Removed session id $id")
+        for(;;) {
+            Jedis jedis = pool.resource
+            try {
+                jedis.del(id)
+                if(log.infoEnabled)
+                    log.info("Removed session id $id")
+            }
+            catch(e) {
+                pool.returnBrokenResource(jedis)
+                continue
+            }
+            pool.returnResource(jedis)
+            break
+        }
     }
 
     public void save(Session session) throws IOException {
         ObjectOutputStream oos
         ByteArrayOutputStream bos
 
-        def hash = new HashMap<String, String>()
         bos = new ByteArrayOutputStream()
         oos = new ObjectOutputStream(new BufferedOutputStream(bos))
 
         ((StandardSession) session).writeObjectData(oos)
         oos.close()
 
-        def jedis = getJedis();
-        jedis.set(session.idInternal, serializeHexBytes(bos.toByteArray()))
-        closeJedis(jedis)
-        log.info("Saved session with id " + session.getIdInternal())
+        for(;;) {
+            Jedis jedis = pool.resource
+            try {
+                jedis.set(session.idInternal, serializeHexBytes(bos.toByteArray()))
+                log.info("Saved session with id " + session.getIdInternal())
+            }
+            catch(e) {
+                pool.returnBrokenResource(jedis)
+                continue
+            }
+            pool.returnResource(jedis)
+            break
+        }
     }
 
     public static String serializeBytes(byte[] a) {
