@@ -16,8 +16,6 @@
 
 package org.mbte.redisstore
 
-import java.util.logging.Logger;
-
 import org.apache.catalina.Session
 import org.apache.catalina.Store
 import org.apache.catalina.util.CustomObjectInputStream
@@ -63,16 +61,6 @@ import redis.clients.jedis.JedisPool
                     _pool = res = [host, port]
             }
         return res
-    }
-
-    Jedis borrowJedis() throws IOException {
-        for(;;) {
-            Jedis res = pool.resource
-            if(res.connected)
-                return res
-
-            pool.returnBrokenResource(res)
-        }
     }
 
     public void clear() throws IOException {
