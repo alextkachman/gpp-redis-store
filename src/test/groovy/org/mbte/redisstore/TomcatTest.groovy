@@ -16,21 +16,12 @@
 
 @Typed package org.mbte.redisstore
 
-import org.apache.catalina.startup.Tomcat
-import org.apache.catalina.session.PersistentManager
 import javax.servlet.http.HttpServlet
 import javax.servlet.http.HttpServletRequest
 import javax.servlet.http.HttpServletResponse
-import java.util.concurrent.CountDownLatch
 import org.mbte.gretty.httpclient.GrettyClient
 import org.mbte.gretty.httpserver.GrettyHttpRequest
-import org.jboss.netty.handler.codec.http.HttpMethod
-import org.jboss.netty.handler.codec.http.HttpVersion
-import org.jboss.netty.handler.codec.http.CookieDecoder
-import org.jboss.netty.handler.codec.http.CookieEncoder
-import org.jboss.netty.handler.codec.http.HttpHeaders
-import org.apache.catalina.core.StandardContext
-import org.apache.catalina.valves.PersistentValve
+import org.jboss.netty.handler.codec.http.*
 
 class TomcatTest extends GroovyTestCase {
     void testHelloWorld () {
@@ -42,7 +33,7 @@ class TomcatTest extends GroovyTestCase {
             client.connect().await()
 
             GrettyHttpRequest req = [HttpVersion.HTTP_1_0, HttpMethod.GET, '/']
-            req.setHeader HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE
+            req.keepAlive()
 
             def resp = client.request(req).get()
             println resp
@@ -55,7 +46,7 @@ class TomcatTest extends GroovyTestCase {
             println "$cookie1.name $cookie1.value"
 
             req = [HttpVersion.HTTP_1_0, HttpMethod.GET, '/']
-            req.setHeader HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE
+            req.keepAlive()
 
             resp = client.request(req).get()
             println resp
@@ -67,26 +58,20 @@ class TomcatTest extends GroovyTestCase {
             def cookie2 = new CookieDecoder().decode(resp.getHeader(HttpHeaders.Names.SET_COOKIE)).asList()[0]
             assert cookie1 != cookie2
 
-
             req = [HttpVersion.HTTP_1_0, HttpMethod.GET, "/"]
-            req.setHeader HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE
-
-            def encoder = new CookieEncoder(false)
-            encoder.addCookie(cookie2.name, cookie2.value)
-            req.setHeader(HttpHeaders.Names.COOKIE, encoder.encode())
+            req.keepAlive().cookies([(cookie2.name): cookie2.value])
 
             resp = client.request(req).get()
             println resp
 
-            def setCookieHeader = resp.getHeader(HttpHeaders.Names.SET_COOKIE)
-            assert setCookieHeader == null
+            assert resp.getHeader(HttpHeaders.Names.SET_COOKIE) == null
 
-            cb = resp.content
-            msg = new String(cb.array(), cb.arrayOffset(), cb.readableBytes(), "UTF-8")
+            msg = resp.content.asString ()
             assert msg == 'Hello, World! 2'
             println msg
 
             tomcat.stop()
+
             tomcat = [port:8082, baseDir:"."]
             tomcat.start(HelloWorldServlet)
 
@@ -94,55 +79,20 @@ class TomcatTest extends GroovyTestCase {
             client.connect().await()
 
             req = [HttpVersion.HTTP_1_0, HttpMethod.GET, "/"]
-            req.setHeader HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE
-
-            encoder = new CookieEncoder(false)
-            encoder.addCookie(cookie2.name, cookie2.value)
-            req.setHeader(HttpHeaders.Names.COOKIE, encoder.encode())
+            req.keepAlive().cookies([(cookie2.name): cookie2.value])
 
             resp = client.request(req).get()
             println resp
 
-            setCookieHeader = resp.getHeader(HttpHeaders.Names.SET_COOKIE)
-            assert setCookieHeader == null
+            assert resp.getHeader(HttpHeaders.Names.SET_COOKIE) == null
 
-            cb = resp.content
-            msg = new String(cb.array(), cb.arrayOffset(), cb.readableBytes(), "UTF-8")
+            msg = resp.content.asString ()
             assert msg == 'Hello, World! 3'
             println msg
         }
         finally {
             tomcat.stop ()
         }
-    }
-}
-
-class TomcatForTest extends Tomcat {
-    void start(Class<HttpServlet> servletClass) {
-        StandardContext context = addContext("/", "")
-
-        addServlet context, "TestServlet", servletClass.name
-        context.addServletMapping "/", "TestServlet"
-
-        context.distributable = true
-        context.manager = new PersistentManager(store: new GppRedisStore())
-
-        context.addValve(new PersistentValve())
-
-        CountDownLatch cdlStart = [1]
-        server.addLifecycleListener { event ->
-            if(event.type == "start")
-                cdlStart.countDown()
-        }
-
-        start()
-        cdlStart.await()
-    }
-
-    void stop () {
-        server.stop()
-        server.await()
-        server.destroy()
     }
 }
 
