@@ -19,7 +19,7 @@ dependencies {
     compile group: 'org.apache.tomcat.embed', name: 'tomcat-embed-core', version: '7.0.4'
     compile group: 'org.apache.tomcat', name: 'tomcat-jasper', version: '7.0.4'
     compile group: 'redis.clients', name: 'jedis', version: '1.5.0'
-    compile group: 'org.mbte.groovypp', name: 'gretty', version: '0.4.104'
+    compile group: 'org.mbte.groovypp', name: 'gretty', version: '0.4.105'
 
     testCompile(group: 'junit', name: 'junit', version: '4.8.1')
 
