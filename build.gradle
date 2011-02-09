@@ -1,29 +1,31 @@
-apply plugin:'groovy'
 apply plugin:'idea'
 
-repositories {
-  mavenRepo urls: 'http://groovypp.artifactoryonline.com/groovypp/libs-releases-local/'
+dependsOn ":Core"
+dependsOn ":Hazelcast"
 
-  mavenRepo urls: 'file://' + new File(System.getProperty('user.home'), '.m2/repository').absolutePath
-  mavenCentral ()
+subprojects {
+    apply plugin:'groovy'
+    apply plugin:'idea'
 
-  mavenRepo urls: 'http://repository.jboss.org/nexus/content/groups/public/'
+    repositories {
+      mavenRepo urls: 'http://groovypp.artifactoryonline.com/groovypp/libs-releases-local/'
 
-  flatDir dirs: 'libs'
-}
+      mavenRepo urls: 'file://' + new File(System.getProperty('user.home'), '.m2/repository').absolutePath
+      mavenCentral ()
 
-dependencies {
-    groovy group: 'org.mbte.groovypp', name: 'groovypp', version: "0.4.101"
+      mavenRepo urls: 'http://repository.jboss.org/nexus/content/groups/public/'
+    }
 
-    compile group: 'org.apache.tomcat', name: 'tomcat-catalina', version: '7.0.4'
-    compile group: 'org.apache.tomcat.embed', name: 'tomcat-embed-core', version: '7.0.4'
-    compile group: 'org.apache.tomcat', name: 'tomcat-jasper', version: '7.0.4'
-    compile group: 'redis.clients', name: 'jedis', version: '1.5.0'
-    compile group: 'org.mbte.groovypp', name: 'gretty', version: '0.4.105'
+    dependencies {
+        groovy group: 'org.mbte.groovypp', name: 'groovypp-all', version: "0.4.155"
 
-    testCompile(group: 'junit', name: 'junit', version: '4.8.1')
+        compile group: 'org.apache.tomcat', name: 'catalina', version: '6.0.29'
+        compile group: 'org.apache.tomcat', name: 'coyote', version: '6.0.29'
+        compile group: 'org.apache.tomcat', name: 'jasper', version: '6.0.29'
 
-    runtime(group: 'commons-cli', name: 'commons-cli', version: '1.1')
+        testCompile group: 'org.mbte.groovypp', name: 'gretty', version: '0.4.155'
+        testCompile(group: 'junit', name: 'junit', version: '4.8.1')
+    }
 }
 
 task wrapper(type: Wrapper) {
